@@ -1,8 +1,9 @@
 {
-  "name": "smartprocure-compliance",
+  "name": "smarthire-recruitment",
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "description": "AI-powered candidate screening and recruitment tool",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
