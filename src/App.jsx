@@ -38,7 +38,8 @@ const API_URL = '/api/analyze';
 
 // UPDATED: Recruitment Categories
 const CATEGORY_ENUM = ["MUST_HAVE_SKILL", "EXPERIENCE", "EDUCATION", "CERTIFICATION", "SOFT_SKILLS", "LOCATION/LANG", "CULTURE_FIT"];
-const MAX_FREE_AUDITS = 3; 
+// STRATEGIC CHANGE: Increased to 50 for Freemium Model
+const MAX_FREE_AUDITS = 50; 
 
 const PAGE = {
     HOME: 'HOME',
@@ -254,7 +255,7 @@ const PaywallModal = ({ show, onClose, userId }) => {
                 </div>
                 <h2 className="text-2xl font-bold text-white mt-8 mb-2">Screening Limit Reached</h2>
                 <p className="text-slate-300 mb-6">
-                    You have used your <span className="text-blue-400 font-bold">3 Free Audits</span>.
+                    You have used your <span className="text-blue-400 font-bold">{MAX_FREE_AUDITS} Free Audits</span>.
                     <br/>To continue screening candidates, upgrade to Pro.
                 </p>
                 <div className="bg-slate-700/50 rounded-xl p-4 mb-6 text-left space-y-3">
@@ -540,7 +541,7 @@ const AuthPage = ({ setCurrentPage, setErrorMessage, errorMessage, db, auth }) =
                     html: `
                         <p>Hi ${regForm.name},</p>
                         <p>Welcome to <strong>SmartHire</strong>. Your automated AI recruitment assistant is ready.</p>
-                        <p>You have 3 Free Candidate Audits.</p>
+                        <p>You have <strong>${MAX_FREE_AUDITS} Free Candidate Screenings</strong> on us.</p>
                         <p>Get started by uploading a Job Description and a Candidate CV.</p>
                     `
                 }
