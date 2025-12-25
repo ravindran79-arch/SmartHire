@@ -20,7 +20,7 @@ const PORT = process.env.PORT || 3000;
 
 // --- 2. SECURITY MIDDLEWARE ---
 
-// A. INCREASE PAYLOAD LIMIT TO 50MB (For Large RFQs)
+// A. INCREASE PAYLOAD LIMIT TO 50MB (For large CVs/JDs)
 app.use(express.json({ 
     limit: '50mb', 
     verify: (req, res, buf) => { req.rawBody = buf.toString(); } 
@@ -35,7 +35,6 @@ const apiLimiter = rateLimit({
 	legacyHeaders: false, 
     message: { error: "Too many requests, please try again later." }
 });
-
 // Apply rate limiting to AI route
 app.use('/api/analyze', apiLimiter);
 
@@ -48,10 +47,12 @@ app.post('/api/analyze', async (req, res) => {
     try {
         const { contents, systemInstruction, generationConfig } = req.body;
         
+        // "Dumb Proxy" - passes specific SmartHire prompts directly to Gemini
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GOOGLE_API_KEY}`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ contents, systemInstruction, generationConfig })
         });
+       
         const data = await response.json();
         
         if (!response.ok) throw new Error(data.error?.message || 'Google API Error');
@@ -59,22 +60,24 @@ app.post('/api/analyze', async (req, res) => {
     } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-// --- CUSTOMER PORTAL ROUTE (UPDATED FOR SMARTPROCURE) ---
+// --- CUSTOMER PORTAL ROUTE (UPDATED FOR SMARTHIRE) ---
 app.post('/api/create-portal-session', async (req, res) => {
     const { userId } = req.body;
     if (!STRIPE_SECRET_KEY) return res.status(500).json({ error: "Server missing Stripe Key" });
 
     try {
-        const userDoc = await admin.firestore().collection('users').doc(userId).collection('usage_limits').doc('main_tracker').get();
+        // CHANGED: Look at 'smarthire_tracker' instead of 'main_tracker'
+        const userDoc = await admin.firestore().collection('users').doc(userId).collection('usage_limits').doc('smarthire_tracker').get();
         const stripeCustomerId = userDoc.data()?.stripeCustomerId;
 
         if (!stripeCustomerId) return res.status(404).json({ error: "No subscription found for this user." });
 
         const stripe = require('stripe')(STRIPE_SECRET_KEY);
+       
         const session = await stripe.billingPortal.sessions.create({
             customer: stripeCustomerId,
-            // UPDATED: Redirects to the new SmartProcure app URL
-            return_url: `https://smartprocure.onrender.com`, 
+            // UPDATED: Redirects to your specific Render URL
+            return_url: `https://smarthire-application.onrender.com`, 
         });
 
         res.json({ url: session.url });
@@ -100,12 +103,14 @@ app.post('/api/webhook', async (req, res) => {
         const stripeCustomerId = session.customer; 
 
         if (userId && admin.apps.length) {
+            // CHANGED: Write to 'smarthire_tracker' to unlock the correct app
             await admin.firestore()
-                .collection('users').doc(userId).collection('usage_limits').doc('main_tracker')
+                .collection('users').doc(userId).collection('usage_limits').doc('smarthire_tracker')
                 .set({ isSubscribed: true, stripeCustomerId: stripeCustomerId }, { merge: true }); 
-            console.log(`✅ Unlocked & Linked: ${userId} -> ${stripeCustomerId}`);
+            console.log(`✅ SmartHire Unlocked: ${userId} -> ${stripeCustomerId}`);
         }
     }
+   
     if (event.type === 'customer.subscription.deleted') {
         const subscription = event.data.object;
         console.log(`❌ Subscription deleted for customer: ${subscription.customer}`);
