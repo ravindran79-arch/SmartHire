@@ -596,9 +596,9 @@ const AuthPage = ({ setCurrentPage, setErrorMessage, errorMessage, db, auth }) =
                         
                         <div className="mt-4 text-[10px] text-slate-500 text-center leading-tight">
                             By registering, you agree to our{' '}
-                            <a href="/terms-of-service.pdf" target="_blank" className="text-blue-400 hover:underline">Terms of Service</a>
+                            <a href="https://img1.wsimg.com/blobby/go/e7a89444-89f8-4812-8ce7-eba19bcc7358/downloads/84df3fa2-49e5-498f-b5fd-e3c9c1acdbc9/terms_of_service.pdf?ver=1766692591294" target="_blank" className="text-blue-400 hover:underline">Terms of Service</a>
                             {' '}and{' '}
-                            <a href="/privacy-policy.pdf" target="_blank" className="text-blue-400 hover:underline">Privacy Policy</a>.
+                            <a href="https://img1.wsimg.com/blobby/go/e7a89444-89f8-4812-8ce7-eba19bcc7358/downloads/4788a78c-fe6e-407d-8b11-ea83c986826a/privacy_policy.pdf?ver=1766692594896" target="_blank" className="text-blue-400 hover:underline">Privacy Policy</a>.
                         </div>
                     </form>
                 </div>
