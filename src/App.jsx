@@ -14,6 +14,7 @@ import {
     signInWithEmailAndPassword, signOut, sendEmailVerification 
 } from 'firebase/auth';
 import { 
+    // Added getDocs here
     getFirestore, collection, addDoc, onSnapshot, query, doc, setDoc, 
     runTransaction, deleteDoc, getDocs, getDoc, collectionGroup, orderBy, limit
 } from 'firebase/firestore'; 
@@ -223,7 +224,8 @@ const FormInput = ({ label, name, value, onChange, type, placeholder, id }) => (
 
 const PaywallModal = ({ show, onClose, userId }) => {
     if (!show) return null;
-    const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/00waEW2Bz25Eg212xlafS01"; 
+    // UPDATED: Your specific SmartProcure Stripe link
+    const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/bJecN43FD39I8zz5JxafS02"; 
 
     const handleUpgrade = () => {
         if (userId) {
@@ -930,6 +932,8 @@ const AdminDashboard = ({ setCurrentPage, currentUser, reportsHistory, handleLog
 };
 
 const AuditPage = ({ title, handleAnalyze, usageLimits, setCurrentPage, currentUser, loading, RFQFile, BidFile, setRFQFile, setBidFile, errorMessage, report, saveReport, saving, setErrorMessage, userId, handleLogout }) => {
+  // REPLACE WITH YOUR LIVE STRIPE CUSTOMER PORTAL URL
+  const STRIPE_PORTAL_LINK = "https://billing.stripe.com/p/login/YOUR_LIVE_PORTAL_LINK_HERE";
     return (
         <>
             <div className="bg-slate-800 p-8 rounded-2xl shadow-2xl border border-slate-700">
@@ -943,7 +947,7 @@ const AuditPage = ({ title, handleAnalyze, usageLimits, setCurrentPage, currentU
                                 <div className="px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500 text-blue-400 text-xs font-bold inline-flex items-center">
                                     <Award className="w-3 h-3 mr-1" /> Status: SmartHire Pro
                                 </div>
-                                <button onClick={() => window.open('https://billing.stripe.com/p/login/test', '_blank')} className="text-xs text-slate-400 hover:text-red-400 underline decoration-dotted">Manage Subscription</button>
+                                <button onClick={() => window.open(STRIPE_PORTAL_LINK, '_blank')} className="text-xs text-slate-400 hover:text-red-400 underline decoration-dotted">Manage Subscription</button>
                             </div>
                         ) : (
                             <p className="text-xs text-slate-400">
