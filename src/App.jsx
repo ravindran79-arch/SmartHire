@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { 
     FileUp, Send, Loader2, AlertTriangle, CheckCircle, List, FileText, BarChart2,
     Save, Clock, Zap, ArrowLeft, Users, Briefcase, Layers, UserPlus, LogIn, Tag,
@@ -505,8 +505,8 @@ const ReportHistory = ({ reportsHistory, loadReportFromHistory, isAuthReady, use
 };
 
 // --- PAGE COMPONENTS (AuthPage) ---
-// FIX: Added setIsRegistering prop to AuthPage
-const AuthPage = ({ setCurrentPage, setErrorMessage, errorMessage, db, auth, setIsRegistering }) => {
+// FIX: Changed prop name from setIsRegistering to isRegisteringRef
+const AuthPage = ({ setCurrentPage, setErrorMessage, errorMessage, db, auth, isRegisteringRef }) => {
     const [regForm, setRegForm] = useState({ name: '', designation: '', company: '', email: '', phone: '', password: '' });
     const [loginForm, setLoginForm] = useState({ email: '', password: '' });
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -518,8 +518,8 @@ const AuthPage = ({ setCurrentPage, setErrorMessage, errorMessage, db, auth, set
         e.preventDefault();
         setErrorMessage(null);
         setIsSubmitting(true);
-        // FIX: Set flag to true to prevent auto-redirect in parent component
-        setIsRegistering(true);
+        // FIX: Set ref value synchronously to prevent auto-redirect race condition
+        isRegisteringRef.current = true;
 
         try {
             const userCred = await createUserWithEmailAndPassword(auth, regForm.email, regForm.password);
@@ -559,8 +559,8 @@ const AuthPage = ({ setCurrentPage, setErrorMessage, errorMessage, db, auth, set
             setErrorMessage(err.message || 'Registration failed.');
         } finally {
             setIsSubmitting(false);
-            // FIX: Reset flag so subsequent logins work normally
-            setIsRegistering(false);
+            // FIX: Reset ref value synchronously
+            isRegisteringRef.current = false;
         }
     };
 
@@ -718,8 +718,8 @@ const App = () => {
     const [reportsHistory, setReportsHistory] = useState([]);
     const [showPaywall, setShowPaywall] = useState(false);
     
-    // FIX: New state to track if registration is in progress
-    const [isRegistering, setIsRegistering] = useState(false); 
+    // FIX: Changed from useState to useRef to handle synchronous updates in async flows
+    const isRegisteringRef = useRef(false); 
 
     // Note: Variable names RFQFile/BidFile kept for code consistency with upload handler, 
     // but conceptually they are JD and CV now.
@@ -745,15 +745,15 @@ const App = () => {
                     const userDoc = await getDoc(doc(db, 'users', user.uid));
                     const userData = userDoc.exists() ? userDoc.data() : { role: 'RECRUITER' };
                     setCurrentUser({ uid: user.uid, ...userData });
-                    // FIX: Only redirect if we are NOT currently registering
-                    if (!isRegistering) {
+                    // FIX: Check the ref value synchronously. If true, we are registering, so don't redirect.
+                    if (!isRegisteringRef.current) {
                         if (userData.role === 'ADMIN') setCurrentPage(PAGE.ADMIN);
                         else setCurrentPage(PAGE.COMPLIANCE_CHECK);
                     }
                 } catch (error) { 
                     setCurrentUser({ uid: user.uid, role: 'RECRUITER' }); 
-                    // FIX: Only redirect if we are NOT currently registering
-                    if (!isRegistering) {
+                    // FIX: Check ref value here too
+                    if (!isRegisteringRef.current) {
                          setCurrentPage(PAGE.COMPLIANCE_CHECK); 
                     }
                 }
@@ -763,8 +763,8 @@ const App = () => {
             setIsAuthReady(true);
         });
         return () => unsubscribe();
-        // FIX: Add isRegistering to dependency array
-    }, [isRegistering]);
+        // FIX: Removed isRegistering from dependency array as refs don't trigger re-renders
+    }, []);
 
     useEffect(() => {
         if (db && userId) {
@@ -963,14 +963,14 @@ const App = () => {
     const renderPage = () => {
         switch (currentPage) {
             case PAGE.HOME:
-                // FIX: Pass setIsRegistering setter to AuthPage
+                // FIX: Pass the ref instead of the setter
                 return <AuthPage 
                             setCurrentPage={setCurrentPage} 
                             setErrorMessage={setErrorMessage} 
                             errorMessage={errorMessage} 
                             db={db} 
                             auth={auth} 
-                            setIsRegistering={setIsRegistering} 
+                            isRegisteringRef={isRegisteringRef} 
                         />;
             case PAGE.COMPLIANCE_CHECK:
                 return <AuditPage 
