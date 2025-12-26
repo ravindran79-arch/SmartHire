@@ -608,7 +608,8 @@ const calculateAdminStats = (reports) => {
 
     if (reports.length === 0) return stats;
 
-    let totalScore Sum = 0;
+    // FIX: Removed the space in 'totalScore Sum'
+    let totalScoreSum = 0;
     let totalExpSum = 0;
     let expCount = 0;
 
@@ -674,7 +675,7 @@ const StatCard = ({ icon: Icon, title, value, subtitle, color }) => (
 
 const SimpleBarChart = ({ data, title, color, limitCount = 5 }) => {
     const sortedEntries = Object.entries(data).sort(([,a], [,b]) => b - a).slice(0, limitCount);
-    const max Val = sortedEntries.length > 0 ? sortedEntries[0][1] : 1;
+    const maxVal = sortedEntries.length > 0 ? sortedEntries[0][1] : 1;
 
     return (
         <div className="p-6 bg-slate-700/50 rounded-xl border border-slate-600 shadow-lg">
