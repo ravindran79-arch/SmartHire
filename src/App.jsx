@@ -14,7 +14,6 @@ import {
     signInWithEmailAndPassword, signOut, sendEmailVerification 
 } from 'firebase/auth';
 import { 
-    // Added getDocs here
     getFirestore, collection, addDoc, onSnapshot, query, doc, setDoc, 
     runTransaction, deleteDoc, getDocs, getDoc, collectionGroup, orderBy, limit
 } from 'firebase/firestore'; 
@@ -514,7 +513,9 @@ const AuthPage = ({ setCurrentPage, setErrorMessage, errorMessage, db, auth, isR
                 company: regForm.company,
                 email: regForm.email,
                 phone: regForm.phone,
-                role: 'RECRUITER', 
+                role: 'RECRUITER',
+                // ADDED SOURCE APP TRACKING
+                registeredVia: 'SMARTHIRE', 
                 createdAt: Date.now()
             });
             await addDoc(collection(db, 'mail'), {
@@ -774,16 +775,19 @@ const AdminDashboard = ({ setCurrentPage, currentUser, reportsHistory, handleLog
       if (db) { fetchUsers(); }
   }, [db]);
 
-  // NEW: CSV Download handler
+  // UPDATED: CSV Download handler with Source App
   const downloadCSV = (data, filename) => {
       if (data.length === 0) { alert("No data to export."); return; }
-      const headers = ["Full Name", "Designation", "Company", "Email", "Phone", "Registered Date"];
+      // Added "Source App" header
+      const headers = ["Full Name", "Designation", "Company", "Email", "Phone", "Source App", "Registered Date"];
       const rows = data.map(user => [
           `"${user.name || ''}"`,
           `"${user.designation || ''}"`,
           `"${user.company || ''}"`,
           `"${user.email || ''}"`,
           `"${user.phone || 'N/A'}"`,
+          // Added Source App data column
+          `"${user.registeredVia || 'Legacy/Unknown'}"`,
           `"${new Date(user.createdAt || Date.now()).toLocaleDateString()}"`
       ]);
 
@@ -863,6 +867,8 @@ const AdminDashboard = ({ setCurrentPage, currentUser, reportsHistory, handleLog
                         <th className="px-6 py-4">Designation</th>
                         <th className="px-6 py-4">Company</th>
                         <th className="px-6 py-4">Email</th>
+                        {/* Added Source App Header */}
+                        <th className="px-6 py-4">Source App</th>
                         <th className="px-6 py-4 rounded-tr-xl">Phone</th>
                     </tr>
                 </thead>
@@ -874,10 +880,12 @@ const AdminDashboard = ({ setCurrentPage, currentUser, reportsHistory, handleLog
                             <td className="px-6 py-4">{user.designation}</td>
                             <td className="px-6 py-4">{user.company}</td>
                             <td className="px-6 py-4 text-blue-300">{user.email}</td>
+                            {/* Added Source App Data Cell with fallback */}
+                            <td className="px-6 py-4 font-medium text-purple-300">{user.registeredVia || "Legacy/Unknown"}</td>
                             <td className="px-6 py-4">{user.phone || "N/A"}</td>
                         </tr>
                     ))}
-                     {allUsers.length === 0 && <tr><td colSpan="6" className="px-6 py-8 text-center text-slate-500 italic">No users registered yet.</td></tr>}
+                     {allUsers.length === 0 && <tr><td colSpan="7" className="px-6 py-8 text-center text-slate-500 italic">No users registered yet.</td></tr>}
                 </tbody>
             </table>
         </div>
