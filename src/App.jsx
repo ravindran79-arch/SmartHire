@@ -4,7 +4,7 @@ import {
     Save, Clock, Zap, ArrowLeft, Users, Briefcase, Layers, UserPlus, LogIn, Tag,
     Shield, User, HardDrive, Phone, Mail, Building, Trash2, Eye, DollarSign, Activity, 
     Printer, Download, MapPin, Calendar, ThumbsUp, ThumbsDown, Gavel, Paperclip, Copy, Award, Lock, CreditCard, Info,
-    Scale, FileCheck, XCircle, Search, UserCheck, HelpCircle, GraduationCap, TrendingUp, Globe, Map
+    Scale, FileCheck, XCircle, Search, UserCheck, HelpCircle, GraduationCap, TrendingUp, Globe, Map, FileDown
 } from 'lucide-react'; 
 
 // --- FIREBASE IMPORTS ---
@@ -14,6 +14,7 @@ import {
     signInWithEmailAndPassword, signOut, sendEmailVerification 
 } from 'firebase/auth';
 import { 
+    // Added getDocs here
     getFirestore, collection, addDoc, onSnapshot, query, doc, setDoc, 
     runTransaction, deleteDoc, getDocs, getDoc, collectionGroup, orderBy, limit
 } from 'firebase/firestore'; 
@@ -608,7 +609,6 @@ const calculateAdminStats = (reports) => {
 
     if (reports.length === 0) return stats;
 
-    // FIX: Removed the space in 'totalScore Sum'
     let totalScoreSum = 0;
     let totalExpSum = 0;
     let expCount = 0;
@@ -710,12 +710,15 @@ const AdminDashboard = ({ setCurrentPage, currentUser, reportsHistory, handleLog
   const [stats, setStats] = useState(null);
   const [enrichedHistory, setEnrichedHistory] = useState([]);
   const [isLoadingAdmin, setIsLoadingAdmin] = useState(true);
+  // NEW STATES FOR USER REGISTRY
+  const [allUsers, setAllUsers] = useState([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(true);
 
-  // 1. Fetch company info for reports to show "Recruitment for Company X"
+
+  // 1. Fetch company info for reports and calculate stats
   useEffect(() => {
     const enrichData = async () => {
         setIsLoadingAdmin(true);
-        // Create a map of ownerIds to company names to avoid repetitive fetches
         const userMap = {};
         const uniqueUserIds = [...new Set(reportsHistory.map(r => r.ownerId))];
         
@@ -735,7 +738,6 @@ const AdminDashboard = ({ setCurrentPage, currentUser, reportsHistory, handleLog
             recruiterCompany: userMap[report.ownerId] || "N/A"
         }));
         setEnrichedHistory(enriched);
-        // 2. Calculate aggregated stats based on all reports
         setStats(calculateAdminStats(enriched));
         setIsLoadingAdmin(false);
     };
@@ -747,6 +749,56 @@ const AdminDashboard = ({ setCurrentPage, currentUser, reportsHistory, handleLog
          setIsLoadingAdmin(false);
     }
   }, [reportsHistory, db]);
+
+  // 2. NEW: Fetch all users for the registry list
+  useEffect(() => {
+      const fetchUsers = async () => {
+          setIsLoadingUsers(true);
+          try {
+              const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
+              const querySnapshot = await getDocs(q);
+              const usersData = [];
+              querySnapshot.forEach((doc) => {
+                  // Filter out admins, we want prospects
+                  if (doc.data().role !== 'ADMIN') {
+                       usersData.push({ id: doc.id, ...doc.data() });
+                  }
+              });
+              setAllUsers(usersData);
+          } catch (error) {
+              console.error("Error fetching users registry:", error);
+          } finally {
+              setIsLoadingUsers(false);
+          }
+      };
+      if (db) { fetchUsers(); }
+  }, [db]);
+
+  // NEW: CSV Download handler
+  const downloadCSV = (data, filename) => {
+      if (data.length === 0) { alert("No data to export."); return; }
+      const headers = ["Full Name", "Designation", "Company", "Email", "Phone", "Registered Date"];
+      const rows = data.map(user => [
+          `"${user.name || ''}"`,
+          `"${user.designation || ''}"`,
+          `"${user.company || ''}"`,
+          `"${user.email || ''}"`,
+          `"${user.phone || 'N/A'}"`,
+          `"${new Date(user.createdAt || Date.now()).toLocaleDateString()}"`
+      ]);
+
+      const csvContent = "data:text/csv;charset=utf-8," 
+          + headers.join(",") + "\n" 
+          + rows.map(e => e.join(",")).join("\n");
+
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", filename);
+      document.body.appendChild(link); // Required for FF
+      link.click();
+      document.body.removeChild(link);
+  };
 
   if (isLoadingAdmin) {
       return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin w-12 h-12 text-blue-400"/></div>;
@@ -760,7 +812,7 @@ const AdminDashboard = ({ setCurrentPage, currentUser, reportsHistory, handleLog
              <p className="text-slate-400 text-sm mt-1">Real-time analytics across all organizations.</p>
         </div>
         <div className="flex space-x-3 no-print">
-            <button onClick={() => window.print()} className="text-sm text-slate-400 hover:text-white bg-slate-700 px-3 py-2 rounded-lg flex items-center"><Printer className="w-4 h-4 mr-2" /> Print Report</button>
+            <button onClick={() => window.print()} className="text-sm text-slate-400 hover:text-white bg-slate-700 px-3 py-2 rounded-lg flex items-center"><Printer className="w-4 h-4 mr-2" /> Print Dashboard</button>
             <button onClick={handleLogout} className="text-sm text-slate-400 hover:text-red-400 flex items-center border border-slate-600 px-3 py-2 rounded-lg"><ArrowLeft className="w-4 h-4 mr-1" /> Logout</button>
         </div>
       </div>
@@ -780,7 +832,6 @@ const AdminDashboard = ({ setCurrentPage, currentUser, reportsHistory, handleLog
       
        {/* MARKET INTEL ROW */}
        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Skill Gaps are usually longer text, so we handle display carefully in the component */}
          <SimpleBarChart data={stats.skillGapCounts} title="Top Market Skill Gaps (Missing Skills)" color="red" limitCount={6} />
          <div>
              <div className="grid grid-cols-1 gap-6">
@@ -790,12 +841,55 @@ const AdminDashboard = ({ setCurrentPage, currentUser, reportsHistory, handleLog
          </div>
       </div>
 
-      {/* RECENT ACTIVITY TABLE (Enhanced) */}
+      {/* NEW SECTION: USER REGISTRY LIST */}
       <div className="pt-6 border-t border-slate-700">
-        <h3 className="text-xl font-bold text-white mb-6 flex items-center"><Eye className="w-6 h-6 mr-2 text-blue-400" /> Recent Live Activity Feed</h3>
-        <div className="overflow-x-auto rounded-xl border border-slate-700">
+        <div className="flex justify-between items-center mb-6">
+            <h3 className="text-xl font-bold text-white flex items-center"><Users className="w-6 h-6 mr-2 text-green-400" /> Registered User Registry & Upsell List</h3>
+            <div className="flex space-x-2 no-print">
+                <button onClick={() => window.print()} className="text-xs bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded flex items-center"><Printer className="w-3 h-3 mr-1" /> Print List</button>
+                <button onClick={() => downloadCSV(allUsers, 'smarthire_users.csv')} className="text-xs bg-green-600 hover:bg-green-500 text-white px-3 py-2 rounded flex items-center"><FileDown className="w-3 h-3 mr-1" /> Export CSV</button>
+            </div>
+        </div>
+        
+        {isLoadingUsers ? (
+            <div className="text-center py-4"><Loader2 className="animate-spin w-6 h-6 text-slate-400 mx-auto"/></div>
+        ) : (
+        <div className="overflow-x-auto rounded-xl border border-slate-700 max-h-[400px] overflow-y-auto custom-scrollbar">
             <table className="w-full text-left text-sm text-slate-300">
-                <thead className="text-xs uppercase bg-slate-900/50 text-slate-400">
+                <thead className="text-xs uppercase bg-slate-900/50 text-slate-400 sticky top-0 z-10">
+                    <tr>
+                        <th className="px-6 py-4 rounded-tl-xl">Registered</th>
+                        <th className="px-6 py-4">Full Name</th>
+                        <th className="px-6 py-4">Designation</th>
+                        <th className="px-6 py-4">Company</th>
+                        <th className="px-6 py-4">Email</th>
+                        <th className="px-6 py-4 rounded-tr-xl">Phone</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-700 bg-slate-800/50">
+                    {allUsers.map(user => (
+                        <tr key={user.id} className="hover:bg-slate-700/30 transition">
+                            <td className="px-6 py-4 whitespace-nowrap">{new Date(user.createdAt).toLocaleDateString()}</td>
+                            <td className="px-6 py-4 font-bold text-white">{user.name}</td>
+                            <td className="px-6 py-4">{user.designation}</td>
+                            <td className="px-6 py-4">{user.company}</td>
+                            <td className="px-6 py-4 text-blue-300">{user.email}</td>
+                            <td className="px-6 py-4">{user.phone || "N/A"}</td>
+                        </tr>
+                    ))}
+                     {allUsers.length === 0 && <tr><td colSpan="6" className="px-6 py-8 text-center text-slate-500 italic">No users registered yet.</td></tr>}
+                </tbody>
+            </table>
+        </div>
+        )}
+      </div>
+
+      {/* RECENT ACTIVITY TABLE */}
+      <div className="pt-6 border-t border-slate-700">
+        <h3 className="text-xl font-bold text-white mb-6 flex items-center"><Eye className="w-6 h-6 mr-2 text-blue-400" /> Recent Live Screening Activity</h3>
+        <div className="overflow-x-auto rounded-xl border border-slate-700 max-h-[400px] overflow-y-auto custom-scrollbar">
+            <table className="w-full text-left text-sm text-slate-300">
+                <thead className="text-xs uppercase bg-slate-900/50 text-slate-400 sticky top-0 z-10">
                     <tr>
                         <th className="px-6 py-4 rounded-tl-xl">Date</th>
                         <th className="px-6 py-4">Recruiting Company</th>
