@@ -1,10 +1,10 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { 
     FileUp, Send, Loader2, AlertTriangle, CheckCircle, List, FileText, BarChart2,
     Save, Clock, Zap, ArrowLeft, Users, Briefcase, Layers, UserPlus, LogIn, Tag,
     Shield, User, HardDrive, Phone, Mail, Building, Trash2, Eye, DollarSign, Activity, 
     Printer, Download, MapPin, Calendar, ThumbsUp, ThumbsDown, Gavel, Paperclip, Copy, Award, Lock, CreditCard, Info,
-    Scale, FileCheck, XCircle, Search, UserCheck, HelpCircle, GraduationCap
+    Scale, FileCheck, XCircle, Search, UserCheck, HelpCircle, GraduationCap, TrendingUp, Globe, Map
 } from 'lucide-react'; 
 
 // --- FIREBASE IMPORTS ---
@@ -15,11 +15,10 @@ import {
 } from 'firebase/auth';
 import { 
     getFirestore, collection, addDoc, onSnapshot, query, doc, setDoc, 
-    runTransaction, deleteDoc, getDocs, getDoc, collectionGroup
+    runTransaction, deleteDoc, getDocs, getDoc, collectionGroup, orderBy, limit
 } from 'firebase/firestore'; 
 
 // --- FIREBASE INITIALIZATION ---
-// Ensure your .env files are set up for the new project or reuse existing if sharing DB
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -38,7 +37,6 @@ const API_URL = '/api/analyze';
 
 // UPDATED: Recruitment Categories
 const CATEGORY_ENUM = ["MUST_HAVE_SKILL", "EXPERIENCE", "EDUCATION", "CERTIFICATION", "SOFT_SKILLS", "LOCATION/LANG", "CULTURE_FIT"];
-// STRATEGIC CHANGE: Increased to 50 for Freemium Model
 const MAX_FREE_AUDITS = 50; 
 
 const PAGE = {
@@ -48,7 +46,7 @@ const PAGE = {
     HISTORY: 'HISTORY' 
 };
 
-// --- SMARTHIRE JSON SCHEMA (THE BRAIN) ---
+// --- SMARTHIRE JSON SCHEMA (THE BRAIN - UPDATED FOR GOD VIEW DATA) ---
 const SMARTHIRE_REPORT_SCHEMA = {
     type: "OBJECT",
     description: "Recruitment Audit Report analyzing Candidate CV against Job Description.",
@@ -56,12 +54,16 @@ const SMARTHIRE_REPORT_SCHEMA = {
         // --- HEADER DATA ---
         "jobRole": { "type": "STRING", "description": "Job Title from JD." },
         "candidateName": { "type": "STRING", "description": "Name of the Candidate." },
+        // NEW FIELDS FOR GOD VIEW
+        "candidateLocation": { "type": "STRING", "description": "Detected city/country of candidate if present, else 'Unknown'." },
+        "salaryIndication": { "type": "STRING", "description": "Detected current or expected salary if present, else 'Not Specified'." },
         
         // --- CANDIDATE HIGHLIGHTS ---
         "candidateSummary": {
             "type": "OBJECT",
             "properties": {
-                "yearsExperience": { "type": "STRING", "description": "Total relevant years of experience extracted." },
+                // Changed to number for easier aggregation
+                "yearsExperienceNum": { "type": "NUMBER", "description": "Numeric value of years experience (e.g., 5.5). Use 0 if none." },
                 "currentRole": { "type": "STRING", "description": "Current or most recent job title." },
                 "educationLevel": { "type": "STRING", "description": "Highest degree or qualification found." }
             }
@@ -117,7 +119,7 @@ const SMARTHIRE_REPORT_SCHEMA = {
             }
         }
     },
-    "required": ["jobRole", "candidateName", "suitabilityScore", "fitLevel", "candidateSummary", "skillGaps", "interviewQuestions", "executiveSummary", "findings"]
+    "required": ["jobRole", "candidateName", "candidateLocation", "salaryIndication", "suitabilityScore", "fitLevel", "candidateSummary", "skillGaps", "interviewQuestions", "executiveSummary", "findings"]
 };
 
 // --- UTILS ---
@@ -136,21 +138,6 @@ const fetchWithRetry = async (url, options, maxRetries = 3) => {
 
 const getUsageDocRef = (db, userId) => doc(db, `users/${userId}/usage_limits`, 'smarthire_tracker');
 const getReportsCollectionRef = (db, userId) => collection(db, `users/${userId}/candidate_reports`);
-
-// --- METRIC CALCULATORS ---
-const getMatchPercentage = (report) => {
-    // If the AI returns a direct score, use it, otherwise calculate from findings
-    if (report.suitabilityScore) return report.suitabilityScore;
-    
-    const findings = report.findings || []; 
-    const totalScore = findings.reduce((sum, item) => {
-        let score = item.matchScore || 0;
-        if (score > 1) { score = score / 100; }
-        return sum + score;
-    }, 0);
-    const maxScore = findings.length * 1;
-    return maxScore > 0 ? parseFloat(((totalScore / maxScore) * 100).toFixed(1)) : 0;
-};
 
 const processFile = (file) => {
     return new Promise(async (resolve, reject) => {
@@ -236,7 +223,6 @@ const FormInput = ({ label, name, value, onChange, type, placeholder, id }) => (
 
 const PaywallModal = ({ show, onClose, userId }) => {
     if (!show) return null;
-    // UPDATE: Your actual Stripe link for SmartHire
     const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/00waEW2Bz25Eg212xlafS01"; 
 
     const handleUpgrade = () => {
@@ -293,7 +279,6 @@ const FileUploader = ({ title, file, setFile, color, requiredText, icon: Icon })
 
 const ComplianceReport = ({ report }) => {
     const findings = report.findings || []; 
-    // Suitability Color Logic
     const fitColor = report.fitLevel === 'POOR FIT' ? 'text-red-500' 
         : report.fitLevel === 'AVERAGE' ? 'text-amber-500' : 'text-green-500';
 
@@ -312,7 +297,6 @@ const ComplianceReport = ({ report }) => {
                 </button>
             </div>
 
-            {/* EXECUTIVE SUMMARY */}
             {report.executiveSummary && (
                 <div className="mb-8 p-6 bg-gradient-to-r from-blue-900/40 to-slate-800 rounded-xl border border-blue-500/30">
                     <div className="flex justify-between items-start mb-3">
@@ -328,7 +312,6 @@ const ComplianceReport = ({ report }) => {
                 </div>
             )}
 
-            {/* METRIC CARDS */}
             <div className="mb-10 grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="p-5 bg-slate-700/50 rounded-xl border border-blue-600/50 text-center">
                     <p className="text-sm font-semibold text-white mb-1"><BarChart2 className="w-4 h-4 inline mr-2"/> Suitability Score</p>
@@ -354,12 +337,12 @@ const ComplianceReport = ({ report }) => {
 
                  <div className="p-5 bg-slate-700/50 rounded-xl border border-purple-600/50 text-center">
                     <p className="text-sm font-semibold text-white mb-1"><Briefcase className="w-4 h-4 inline mr-2 text-purple-400"/> Experience Level</p>
-                    <div className="text-3xl font-extrabold text-white mt-4">{report.candidateSummary?.yearsExperience || "N/A"}</div>
+                    {/* Display numeric experience nicely */}
+                    <div className="text-3xl font-extrabold text-white mt-4">{report.candidateSummary?.yearsExperienceNum > 0 ? `${report.candidateSummary.yearsExperienceNum} Yrs` : "N/A"}</div>
                     <div className="text-xs text-slate-400 mt-1">{report.candidateSummary?.educationLevel}</div>
                 </div>
             </div>
 
-            {/* CANDIDATE HIGHLIGHTS & GAPS */}
             <div className="mb-10 grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="p-5 bg-slate-900/50 rounded-xl border border-slate-700">
                     <h4 className="text-lg font-bold text-white mb-3"><GraduationCap className="w-5 h-5 inline mr-2 text-blue-400"/> Candidate Profile</h4>
@@ -368,18 +351,23 @@ const ComplianceReport = ({ report }) => {
                             <span className="text-slate-400 text-sm">Current Role</span>
                             <span className="text-white text-sm font-bold text-right">{report.candidateSummary?.currentRole || "N/A"}</span>
                         </li>
+                        {/* NEW LOCATION FIELD */}
+                        <li className="flex justify-between border-b border-slate-800 pb-2">
+                            <span className="text-slate-400 text-sm">Location</span>
+                            <span className="text-white text-sm font-bold text-right">{report.candidateLocation || "Unknown"}</span>
+                        </li>
+                        {/* NEW SALARY FIELD */}
+                         <li className="flex justify-between border-b border-slate-800 pb-2">
+                            <span className="text-slate-400 text-sm">Salary Indication</span>
+                            <span className="text-white text-sm font-bold text-right">{report.salaryIndication || "Not Specified"}</span>
+                        </li>
                         <li className="flex justify-between border-b border-slate-800 pb-2">
                             <span className="text-slate-400 text-sm">Education</span>
                             <span className="text-white text-sm font-bold text-right">{report.candidateSummary?.educationLevel || "N/A"}</span>
                         </li>
-                         <li className="flex justify-between">
-                            <span className="text-slate-400 text-sm">Experience</span>
-                            <span className="text-white text-sm font-bold text-right">{report.candidateSummary?.yearsExperience || "N/A"}</span>
-                        </li>
                     </ul>
                 </div>
                 
-                {/* SKILL GAPS (RED LINES) */}
                 <div className="p-5 bg-slate-900/50 rounded-xl border border-slate-700">
                     <h4 className="text-lg font-bold text-white mb-3"><AlertTriangle className="w-5 h-5 inline mr-2 text-red-400"/> Skill Gaps Identified</h4>
                     {report.skillGaps?.length > 0 ? (
@@ -397,7 +385,6 @@ const ComplianceReport = ({ report }) => {
                 </div>
             </div>
 
-            {/* INTERVIEW QUESTIONS (NEW FEATURE) */}
             {report.interviewQuestions?.length > 0 && (
                 <div className="mb-10 p-6 bg-slate-900 rounded-xl border border-slate-700 border-l-4 border-l-purple-500">
                     <h4 className="text-xl font-bold text-white mb-4 flex items-center"><HelpCircle className="w-6 h-6 mr-2 text-purple-400"/> Suggested Interview Questions</h4>
@@ -412,7 +399,6 @@ const ComplianceReport = ({ report }) => {
                 </div>
             )}
 
-            {/* DETAILED FINDINGS */}
             <h3 className="text-2xl font-bold text-white mb-6 border-b border-slate-700 pb-3">Detailed Requirement Match</h3>
             <div className="space-y-6">
                 {findings.map((item, index) => (
@@ -504,8 +490,6 @@ const ReportHistory = ({ reportsHistory, loadReportFromHistory, isAuthReady, use
     );
 };
 
-// --- PAGE COMPONENTS (AuthPage) ---
-// FIX: Changed prop name from setIsRegistering to isRegisteringRef
 const AuthPage = ({ setCurrentPage, setErrorMessage, errorMessage, db, auth, isRegisteringRef }) => {
     const [regForm, setRegForm] = useState({ name: '', designation: '', company: '', email: '', phone: '', password: '' });
     const [loginForm, setLoginForm] = useState({ email: '', password: '' });
@@ -518,15 +502,11 @@ const AuthPage = ({ setCurrentPage, setErrorMessage, errorMessage, db, auth, isR
         e.preventDefault();
         setErrorMessage(null);
         setIsSubmitting(true);
-        // FIX: Set ref value synchronously to prevent auto-redirect race condition
         isRegisteringRef.current = true;
 
         try {
             const userCred = await createUserWithEmailAndPassword(auth, regForm.email, regForm.password);
-            
-            // --- EMAIL VERIFICATION ---
             await sendEmailVerification(userCred.user);
-            
             await setDoc(doc(db, 'users', userCred.user.uid), {
                 name: regForm.name,
                 designation: regForm.designation,
@@ -536,21 +516,13 @@ const AuthPage = ({ setCurrentPage, setErrorMessage, errorMessage, db, auth, isR
                 role: 'RECRUITER', 
                 createdAt: Date.now()
             });
-
-            // TRIGGER WELCOME EMAIL
             await addDoc(collection(db, 'mail'), {
                 to: regForm.email,
                 message: {
                     subject: 'Welcome to SmartHire – Start Screening Candidates',
-                    html: `
-                        <p>Hi ${regForm.name},</p>
-                        <p>Welcome to <strong>SmartHire</strong>. Your automated AI recruitment assistant is ready.</p>
-                        <p>You have <strong>${MAX_FREE_AUDITS} Free Candidate Screenings</strong> on us.</p>
-                        <p>Get started by uploading a Job Description and a Candidate CV.</p>
-                    `
+                    html: `<p>Hi ${regForm.name},</p><p>Welcome to <strong>SmartHire</strong>.</p>`
                 }
             });
-
             await signOut(auth);
             setLoginForm({ email: regForm.email, password: regForm.password });
             setErrorMessage('SUCCESS: Registration complete! A verification email has been sent. Please verify before logging in.'); 
@@ -559,7 +531,6 @@ const AuthPage = ({ setCurrentPage, setErrorMessage, errorMessage, db, auth, isR
             setErrorMessage(err.message || 'Registration failed.');
         } finally {
             setIsSubmitting(false);
-            // FIX: Reset ref value synchronously
             isRegisteringRef.current = false;
         }
     };
@@ -594,37 +565,24 @@ const AuthPage = ({ setCurrentPage, setErrorMessage, errorMessage, db, auth, isR
                         <FormInput id="reg-email" label="Email *" name="email" value={regForm.email} onChange={handleRegChange} type="email" />
                         <FormInput id="reg-phone" label="Contact Number" name="phone" value={regForm.phone} onChange={handleRegChange} type="tel" placeholder="Optional" />
                         <FormInput id="reg-password" label="Create Password *" name="password" value={regForm.password} onChange={handleRegChange} type="password" />
-
                         <button type="submit" disabled={isSubmitting} className={`w-full py-3 text-lg font-semibold rounded-xl text-slate-900 transition-all shadow-lg mt-6 bg-blue-400 hover:bg-blue-300 disabled:opacity-50 flex items-center justify-center`}>
-                            {isSubmitting ? <Loader2 className="animate-spin h-5 w-5 mr-2" /> : <UserPlus className="h-5 w-5 mr-2" />}
-                            {isSubmitting ? 'Registering...' : 'Register'}
+                            {isSubmitting ? <Loader2 className="animate-spin h-5 w-5 mr-2" /> : <UserPlus className="h-5 w-5 mr-2" />} {isSubmitting ? 'Registering...' : 'Register'}
                         </button>
-                        
-                        <div className="mt-4 text-[10px] text-slate-500 text-center leading-tight">
-                            By registering, you agree to our{' '}
-                            <a href="/terms-of-service.pdf" target="_blank" className="text-blue-400 hover:underline">Terms of Service</a>
-                            {' '}and{' '}
-                            <a href="/privacy-policy.pdf" target="_blank" className="text-blue-400 hover:underline">Privacy Policy</a>.
-                        </div>
+                        <div className="mt-4 text-[10px] text-slate-500 text-center leading-tight">By registering, you agree to our Terms & Privacy Policy.</div>
                     </form>
                 </div>
-
                 <div className="p-6 bg-slate-700/50 rounded-xl border border-green-500/50 shadow-inner flex flex-col justify-center">
                     <h3 className="text-2xl font-bold text-green-300 flex items-center mb-4"><LogIn className="w-6 h-6 mr-2" /> Recruiter Sign In</h3>
                     <form onSubmit={handleLogin} className="space-y-4">
                         <FormInput id="login-email" label="Email *" name="email" value={loginForm.email} onChange={handleLoginChange} type="email" />
                         <FormInput id="login-password" label="Password *" name="password" value={loginForm.password} onChange={handleLoginChange} type="password" />
-
                         <button type="submit" disabled={isSubmitting} className={`w-full py-3 text-lg font-semibold rounded-xl text-slate-900 transition-all shadow-lg mt-6 bg-green-400 hover:bg-green-300 disabled:opacity-50 flex items-center justify-center`}>
-                            {isSubmitting ? <Loader2 className="animate-spin h-5 w-5 mr-2" /> : <LogIn className="h-5 w-5 mr-2" />}
-                            {isSubmitting ? 'Signing in...' : 'Sign In'}
+                            {isSubmitting ? <Loader2 className="animate-spin h-5 w-5 mr-2" /> : <LogIn className="h-5 w-5 mr-2" />} {isSubmitting ? 'Signing in...' : 'Sign In'}
                         </button>
                     </form>
-
                     {errorMessage && (
                         <div className={`mt-4 p-3 ${isSuccess ? 'bg-green-900/40 text-green-300 border-green-700' : 'bg-red-900/40 text-red-300 border-red-700'} border rounded-xl flex items-center`}>
-                            {isSuccess ? <CheckCircle className="w-5 h-5 mr-3"/> : <AlertTriangle className="w-5 h-5 mr-3"/>}
-                            <p className="text-sm font-medium">{errorMessage}</p>
+                            {isSuccess ? <CheckCircle className="w-5 h-5 mr-3"/> : <AlertTriangle className="w-5 h-5 mr-3"/>} <p className="text-sm font-medium">{errorMessage}</p>
                         </div>
                     )}
                 </div>
@@ -633,29 +591,236 @@ const AuthPage = ({ setCurrentPage, setErrorMessage, errorMessage, db, auth, isR
     );
 };
 
-const AdminDashboard = ({ setCurrentPage, currentUser, reportsHistory, loadReportFromHistory, handleLogout }) => {
+// --- NEW ADMIN DASHBOARD COMPONENTS ---
+
+// Helper to aggregate data for the "God View"
+const calculateAdminStats = (reports) => {
+    const stats = {
+        totalReports: reports.length,
+        avgScore: 0,
+        avgExperience: 0,
+        roleCounts: {},
+        fitCounts: { "EXCELLENT FIT": 0, "GOOD FIT": 0, "AVERAGE": 0, "POOR FIT": 0 },
+        skillGapCounts: {},
+        locationCounts: {},
+        salaryDataCount: 0 // Count how many had salary data
+    };
+
+    if (reports.length === 0) return stats;
+
+    let totalScore Sum = 0;
+    let totalExpSum = 0;
+    let expCount = 0;
+
+    reports.forEach(report => {
+        // Scores & Fit
+        totalScoreSum += (report.suitabilityScore || 0);
+        if (report.fitLevel && stats.fitCounts[report.fitLevel] !== undefined) {
+            stats.fitCounts[report.fitLevel]++;
+        }
+        
+        // Roles
+        const role = report.jobRole || "Unknown Role";
+        stats.roleCounts[role] = (stats.roleCounts[role] || 0) + 1;
+
+        // Experience
+        const exp = report.candidateSummary?.yearsExperienceNum;
+        if (exp !== undefined && exp !== null && !isNaN(exp)) {
+            totalExpSum += exp;
+            expCount++;
+        }
+
+        // Skill Gaps aggregation
+        if (report.skillGaps && Array.isArray(report.skillGaps)) {
+            report.skillGaps.forEach(gap => {
+                // Simple normalization
+                const normalizedGap = gap.toLowerCase().trim().replace(/[.,]/g, '');
+                stats.skillGapCounts[normalizedGap] = (stats.skillGapCounts[normalizedGap] || 0) + 1;
+            });
+        }
+
+        // Location agg
+        const loc = report.candidateLocation;
+        if(loc && loc !== "Unknown") {
+             stats.locationCounts[loc] = (stats.locationCounts[loc] || 0) + 1;
+        }
+
+        // Salary Data existence check
+        if(report.salaryIndication && report.salaryIndication !== "Not Specified") {
+            stats.salaryDataCount++;
+        }
+    });
+
+    stats.avgScore = (totalScoreSum / reports.length).toFixed(1);
+    stats.avgExperience = expCount > 0 ? (totalExpSum / expCount).toFixed(1) : 0;
+
+    return stats;
+};
+
+const StatCard = ({ icon: Icon, title, value, subtitle, color }) => (
+    <div className={`p-6 bg-slate-700/50 rounded-xl border border-${color}-500/30 shadow-lg`}>
+        <div className="flex justify-between items-start mb-4">
+            <div>
+                <p className="text-slate-400 text-sm font-medium uppercase tracking-wider">{title}</p>
+                <h4 className={`text-4xl font-extrabold text-${color}-400 mt-2`}>{value}</h4>
+            </div>
+            <div className={`p-3 bg-${color}-500/20 rounded-lg`}>
+                <Icon className={`w-8 h-8 text-${color}-400`} />
+            </div>
+        </div>
+        {subtitle && <p className="text-slate-300 text-sm">{subtitle}</p>}
+    </div>
+);
+
+const SimpleBarChart = ({ data, title, color, limitCount = 5 }) => {
+    const sortedEntries = Object.entries(data).sort(([,a], [,b]) => b - a).slice(0, limitCount);
+    const max Val = sortedEntries.length > 0 ? sortedEntries[0][1] : 1;
+
+    return (
+        <div className="p-6 bg-slate-700/50 rounded-xl border border-slate-600 shadow-lg">
+             <h4 className="text-lg font-bold text-white mb-4 flex items-center"><TrendingUp className={`w-5 h-5 mr-2 text-${color}-400`}/> {title}</h4>
+             <div className="space-y-3">
+                {sortedEntries.map(([key, value], i) => {
+                     // Basic normalization for display if it's a long sentence-like gap
+                    let displayKey = key.length > 40 ? key.substring(0, 40) + "..." : key;
+                    // Capitalize first letter for display
+                    displayKey = displayKey.charAt(0).toUpperCase() + displayKey.slice(1);
+
+                    const percentage = (value / maxVal) * 100;
+                    return (
+                        <div key={i}>
+                            <div className="flex justify-between text-sm text-slate-300 mb-1">
+                                <span>{displayKey}</span>
+                                <span className="font-bold">{value}</span>
+                            </div>
+                            <div className="h-3 bg-slate-800 rounded-full overflow-hidden">
+                                <div className={`h-full bg-${color}-500 transition-all duration-500`} style={{ width: `${percentage}%` }}></div>
+                            </div>
+                        </div>
+                    )
+                })}
+                {sortedEntries.length === 0 && <p className="text-slate-400 text-sm italic">No data yet.</p>}
+             </div>
+        </div>
+    )
+}
+
+const AdminDashboard = ({ setCurrentPage, currentUser, reportsHistory, handleLogout, db }) => {
+  const [stats, setStats] = useState(null);
+  const [enrichedHistory, setEnrichedHistory] = useState([]);
+  const [isLoadingAdmin, setIsLoadingAdmin] = useState(true);
+
+  // 1. Fetch company info for reports to show "Recruitment for Company X"
+  useEffect(() => {
+    const enrichData = async () => {
+        setIsLoadingAdmin(true);
+        // Create a map of ownerIds to company names to avoid repetitive fetches
+        const userMap = {};
+        const uniqueUserIds = [...new Set(reportsHistory.map(r => r.ownerId))];
+        
+        for (const uid of uniqueUserIds) {
+            if(uid) {
+                try {
+                     const userDoc = await getDoc(doc(db, 'users', uid));
+                     if(userDoc.exists()) {
+                         userMap[uid] = userDoc.data().company || "Unknown Co.";
+                     }
+                } catch (e) { console.error("Error fetching user data for admin", e);}
+            }
+        }
+
+        const enriched = reportsHistory.map(report => ({
+            ...report,
+            recruiterCompany: userMap[report.ownerId] || "N/A"
+        }));
+        setEnrichedHistory(enriched);
+        // 2. Calculate aggregated stats based on all reports
+        setStats(calculateAdminStats(enriched));
+        setIsLoadingAdmin(false);
+    };
+
+    if(reportsHistory.length > 0) {
+        enrichData();
+    } else {
+         setStats(calculateAdminStats([]));
+         setIsLoadingAdmin(false);
+    }
+  }, [reportsHistory, db]);
+
+  if (isLoadingAdmin) {
+      return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin w-12 h-12 text-blue-400"/></div>;
+  }
+
   return (
     <div id="admin-print-area" className="bg-slate-800 p-8 rounded-2xl shadow-2xl border border-slate-700 space-y-8">
       <div className="flex justify-between items-center border-b border-slate-700 pb-4">
-        <h2 className="text-3xl font-bold text-white flex items-center"><Shield className="w-8 h-8 mr-3 text-red-400" /> Admin Market Intel (Recruitment)</h2>
+        <div>
+             <h2 className="text-3xl font-bold text-white flex items-center"><Shield className="w-8 h-8 mr-3 text-red-500" /> Global Recruitment Intelligence (God View)</h2>
+             <p className="text-slate-400 text-sm mt-1">Real-time analytics across all organizations.</p>
+        </div>
         <div className="flex space-x-3 no-print">
-            <button onClick={() => window.print()} className="text-sm text-slate-400 hover:text-white bg-slate-700 px-3 py-2 rounded-lg"><Printer className="w-4 h-4 mr-2" /> Print</button>
-            <button onClick={handleLogout} className="text-sm text-slate-400 hover:text-blue-500 flex items-center"><ArrowLeft className="w-4 h-4 mr-1" /> Logout</button>
+            <button onClick={() => window.print()} className="text-sm text-slate-400 hover:text-white bg-slate-700 px-3 py-2 rounded-lg flex items-center"><Printer className="w-4 h-4 mr-2" /> Print Report</button>
+            <button onClick={handleLogout} className="text-sm text-slate-400 hover:text-red-400 flex items-center border border-slate-600 px-3 py-2 rounded-lg"><ArrowLeft className="w-4 h-4 mr-1" /> Logout</button>
         </div>
       </div>
       
-      <div className="pt-4 border-t border-slate-700">
-        <h3 className="text-xl font-bold text-white mb-4 flex items-center"><Eye className="w-6 h-6 mr-2 text-blue-400" /> Recent Candidate Screenings</h3>
-        <div className="space-y-4">{reportsHistory.slice(0, 15).map(item => (
-            <div key={item.id} className="p-4 bg-slate-900/50 rounded-xl border border-slate-700 cursor-default hover:bg-slate-900">
-                <div className="flex justify-between mb-2">
-                    <div>
-                        <h4 className="text-lg font-bold text-white">{item.jobRole || "Role"} <span className="text-sm text-slate-400">vs {item.candidateName || "Candidate"}</span></h4>
-                    </div>
-                    <div className="text-right"><div className="text-xl font-bold text-blue-400">{item.suitabilityScore}% Match</div></div>
-                </div>
-            </div>
-        ))}</div>
+      {/* KPI CARDS ROW */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <StatCard icon={Activity} title="Total Screenings" value={stats.totalReports} subtitle="All-time candidates processed" color="blue" />
+        <StatCard icon={BarChart2} title="Avg Global Score" value={`${stats.avgScore}%`} subtitle="Mean suitability across all roles" color="purple" />
+        <StatCard icon={Briefcase} title="Avg Candidate Exp." value={`${stats.avgExperience} Yrs`} subtitle="Based on extracted work history" color="green" />
+      </div>
+
+      {/* VISUAL DATA BARS ROW */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+         <SimpleBarChart data={stats.roleCounts} title="Top Roles Recruited" color="blue" limitCount={6} />
+         <SimpleBarChart data={stats.fitCounts} title="Candidate Fit Distribution" color="amber" />
+      </div>
+      
+       {/* MARKET INTEL ROW */}
+       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Skill Gaps are usually longer text, so we handle display carefully in the component */}
+         <SimpleBarChart data={stats.skillGapCounts} title="Top Market Skill Gaps (Missing Skills)" color="red" limitCount={6} />
+         <div>
+             <div className="grid grid-cols-1 gap-6">
+                 <StatCard icon={DollarSign} title="Salary Data Points" value={stats.salaryDataCount} subtitle="Candidates with detectable salary info" color="green" />
+                 <SimpleBarChart data={stats.locationCounts} title="Top Candidate Locations" color="purple" limitCount={4} />
+             </div>
+         </div>
+      </div>
+
+      {/* RECENT ACTIVITY TABLE (Enhanced) */}
+      <div className="pt-6 border-t border-slate-700">
+        <h3 className="text-xl font-bold text-white mb-6 flex items-center"><Eye className="w-6 h-6 mr-2 text-blue-400" /> Recent Live Activity Feed</h3>
+        <div className="overflow-x-auto rounded-xl border border-slate-700">
+            <table className="w-full text-left text-sm text-slate-300">
+                <thead className="text-xs uppercase bg-slate-900/50 text-slate-400">
+                    <tr>
+                        <th className="px-6 py-4 rounded-tl-xl">Date</th>
+                        <th className="px-6 py-4">Recruiting Company</th>
+                        <th className="px-6 py-4">Role</th>
+                        <th className="px-6 py-4">Candidate Location</th>
+                        <th className="px-6 py-4 text-right rounded-tr-xl">Score</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-700 bg-slate-800/50">
+                    {enrichedHistory.slice(0, 20).map(item => (
+                        <tr key={item.id} className="hover:bg-slate-700/30 transition">
+                            <td className="px-6 py-4 whitespace-nowrap">{new Date(item.timestamp).toLocaleDateString()}</td>
+                            <td className="px-6 py-4 font-bold text-white"><Building className="w-4 h-4 inline mr-2 text-slate-500"/>{item.recruiterCompany}</td>
+                            <td className="px-6 py-4 font-medium text-blue-300">{item.jobRole || "N/A"}</td>
+                             <td className="px-6 py-4"><MapPin className="w-4 h-4 inline mr-1 text-slate-500"/>{item.candidateLocation || "Unknown"}</td>
+                            <td className="px-6 py-4 text-right">
+                                <span className={`px-2 py-1 rounded text-xs font-bold ${item.suitabilityScore > 80 ? 'bg-green-900/50 text-green-300 border border-green-500' : item.suitabilityScore > 50 ? 'bg-amber-900/50 text-amber-300 border border-amber-500' : 'bg-red-900/50 text-red-300 border border-red-500'}`}>
+                                    {item.suitabilityScore}%
+                                </span>
+                            </td>
+                        </tr>
+                    ))}
+                     {enrichedHistory.length === 0 && <tr><td colSpan="5" className="px-6 py-8 text-center text-slate-500 italic">No screening activity found yet.</td></tr>}
+                </tbody>
+            </table>
+        </div>
       </div>
     </div>
   );
@@ -669,7 +834,7 @@ const AuditPage = ({ title, handleAnalyze, usageLimits, setCurrentPage, currentU
                     <h2 className="text-2xl font-bold text-white">{title}</h2>
                     <div className="text-right">
                         {currentUser?.role === 'ADMIN' ? (
-                            <p className="text-xs text-green-400 font-bold">Admin Mode</p>
+                            <p className="text-xs text-red-400 font-bold flex items-center justify-end"><Shield className="w-3 h-3 mr-1"/> Admin Mode</p>
                         ) : usageLimits.isSubscribed ? (
                             <div className="flex flex-col items-end space-y-1">
                                 <div className="px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500 text-blue-400 text-xs font-bold inline-flex items-center">
@@ -718,11 +883,8 @@ const App = () => {
     const [reportsHistory, setReportsHistory] = useState([]);
     const [showPaywall, setShowPaywall] = useState(false);
     
-    // FIX: Changed from useState to useRef to handle synchronous updates in async flows
     const isRegisteringRef = useRef(false); 
 
-    // Note: Variable names RFQFile/BidFile kept for code consistency with upload handler, 
-    // but conceptually they are JD and CV now.
     const [RFQFile, setRFQFile] = useState(null);
     const [BidFile, setBidFile] = useState(null);
     const [report, setReport] = useState(null);
@@ -745,14 +907,12 @@ const App = () => {
                     const userDoc = await getDoc(doc(db, 'users', user.uid));
                     const userData = userDoc.exists() ? userDoc.data() : { role: 'RECRUITER' };
                     setCurrentUser({ uid: user.uid, ...userData });
-                    // FIX: Check the ref value synchronously. If true, we are registering, so don't redirect.
                     if (!isRegisteringRef.current) {
                         if (userData.role === 'ADMIN') setCurrentPage(PAGE.ADMIN);
                         else setCurrentPage(PAGE.COMPLIANCE_CHECK);
                     }
                 } catch (error) { 
                     setCurrentUser({ uid: user.uid, role: 'RECRUITER' }); 
-                    // FIX: Check ref value here too
                     if (!isRegisteringRef.current) {
                          setCurrentPage(PAGE.COMPLIANCE_CHECK); 
                     }
@@ -763,7 +923,6 @@ const App = () => {
             setIsAuthReady(true);
         });
         return () => unsubscribe();
-        // FIX: Removed isRegistering from dependency array as refs don't trigger re-renders
     }, []);
 
     useEffect(() => {
@@ -780,27 +939,35 @@ const App = () => {
         }
     }, [userId]);
 
+    // Fetch History (Recruiter vs Admin View)
     useEffect(() => {
         if (!db || !currentUser) return;
         let unsubscribeSnapshot = null;
         let q;
-        // CHANGED: Collection name to 'candidate_reports'
-        if (currentUser.role === 'ADMIN') { q = query(collectionGroup(db, 'candidate_reports')); } 
-        else if (userId) { q = query(getReportsCollectionRef(db, userId)); }
+        
+        if (currentUser.role === 'ADMIN') { 
+            // Admin gets everything, ordered by newest first, limited to last 100 for performance
+            q = query(collectionGroup(db, 'candidate_reports'), orderBy('timestamp', 'desc'), limit(100)); 
+        } else if (userId) { 
+            // Recruiter gets only their own
+            q = query(getReportsCollectionRef(db, userId)); 
+        }
         
         if (q) {
             unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
                 const history = [];
                 snapshot.forEach(docSnap => {
+                    // Important: For collectionGroup queries, we need to determine the ownerID from the path
                     const ownerId = docSnap.ref.parent.parent ? docSnap.ref.parent.parent.id : userId;
                     history.push({ id: docSnap.id, ownerId: ownerId, ...docSnap.data() });
                 });
+                // Sort again just to be safe if using recruiter view
                 history.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
                 setReportsHistory(history);
             });
         }
         return () => unsubscribeSnapshot && unsubscribeSnapshot();
-    }, [userId, currentUser]);
+    }, [userId, currentUser, db]); // Added db to dependencies
 
     useEffect(() => {
         const loadScript = (src) => {
@@ -852,27 +1019,23 @@ const App = () => {
             const jdContent = await processFile(RFQFile);
             const cvContent = await processFile(BidFile);
             
-            // --- UPDATED SYSTEM PROMPT FOR HR LOGIC ---
+            // --- UPDATED SYSTEM PROMPT FOR GOD VIEW DATA EXTRACTION ---
             const systemPrompt = {
                 parts: [{
                     text: `You are the SmartHire AI Recruiter. 
                     Your goal is to screen a candidate CV against a Job Description (JD).
                     
-                    **SECURITY PROTOCOL:**
-                    - The user provided JD text wrapped in <job_description> tags.
-                    - The user provided CV text wrapped in <candidate_cv> tags.
-
                     TASK:
-                    1. EXTRACT Job Title and Candidate Name.
-                    2. CALCULATE a 'Suitability Score' (0-100).
-                       - 90-100: Exceptional match.
-                       - 70-89: Good match.
-                       - <50: Poor match.
-                    3. IDENTIFY 'Skill Gaps' (Red Lines) -> Missing 'Must-Have' skills from JD.
-                    4. GENERATE 'Interview Questions' -> Behavioral questions targeting the identified gaps or culture fit.
-                    5. COMPARE Line-by-Line: Does the CV evidence the JD requirement?
+                    1. EXTRACT Metadata: Job Title, Candidate Name.
+                    2. **NEW**: EXTRACT 'candidateLocation' (City/Country) from the CV if present. If not found, use "Unknown".
+                    3. **NEW**: EXTRACT 'salaryIndication' (Current or expected salary) from the CV if explicitly stated. If not found, use "Not Specified".
+                    4. EXTRACT 'yearsExperienceNum' as a number (e.g. 5 or 2.5).
+                    5. CALCULATE 'Suitability Score' (0-100).
+                    6. IDENTIFY 'Skill Gaps' (Red Lines).
+                    7. GENERATE 3 'Interview Questions'.
+                    8. COMPARE Line-by-Line evidence.
                     
-                    OUTPUT: JSON matching the schema provided.`
+                    OUTPUT: JSON matching the provided schema precisely.`
                 }]
             };
 
@@ -927,8 +1090,11 @@ const App = () => {
             const reportsRef = getReportsCollectionRef(db, userId);
             await addDoc(reportsRef, {
                 ...report,
+                // Ensure defaults if AI missed them
                 jobRole: report.jobRole || 'Untitled Role',
                 candidateName: report.candidateName || 'Unknown Candidate',
+                candidateLocation: report.candidateLocation || 'Unknown',
+                salaryIndication: report.salaryIndication || 'Not Specified',
                 timestamp: Date.now(),
                 role: role, 
                 ownerId: userId 
@@ -963,7 +1129,6 @@ const App = () => {
     const renderPage = () => {
         switch (currentPage) {
             case PAGE.HOME:
-                // FIX: Pass the ref instead of the setter
                 return <AuthPage 
                             setCurrentPage={setCurrentPage} 
                             setErrorMessage={setErrorMessage} 
@@ -982,7 +1147,8 @@ const App = () => {
                     setErrorMessage={setErrorMessage} userId={userId} handleLogout={handleLogout}
                 />;
             case PAGE.ADMIN:
-                return <AdminDashboard setCurrentPage={setCurrentPage} currentUser={currentUser} reportsHistory={reportsHistory} loadReportFromHistory={loadReportFromHistory} handleLogout={handleLogout} />;
+                // Pass DB to admin for fetching company names
+                return <AdminDashboard setCurrentPage={setCurrentPage} currentUser={currentUser} reportsHistory={reportsHistory} loadReportFromHistory={loadReportFromHistory} handleLogout={handleLogout} db={db} />;
             case PAGE.HISTORY:
                 return <ReportHistory reportsHistory={reportsHistory} loadReportFromHistory={loadReportFromHistory} deleteReport={deleteReport} isAuthReady={isAuthReady} userId={userId} setCurrentPage={setCurrentPage} currentUser={currentUser} handleLogout={handleLogout} />;
             default: return <AuthPage setCurrentPage={setCurrentPage} setErrorMessage={setErrorMessage} errorMessage={errorMessage} db={db} auth={auth} />;
@@ -1013,7 +1179,6 @@ const App = () => {
     );
 };
 
-// --- TOP LEVEL EXPORT ---
 const MainApp = App;
 
 function TopLevelApp() {
