@@ -572,7 +572,26 @@ const AuthPage = ({ setCurrentPage, setErrorMessage, errorMessage, db, auth, isR
                         <button type="submit" disabled={isSubmitting} className={`w-full py-3 text-lg font-semibold rounded-xl text-slate-900 transition-all shadow-lg mt-6 bg-blue-400 hover:bg-blue-300 disabled:opacity-50 flex items-center justify-center`}>
                             {isSubmitting ? <Loader2 className="animate-spin h-5 w-5 mr-2" /> : <UserPlus className="h-5 w-5 mr-2" />} {isSubmitting ? 'Registering...' : 'Register'}
                         </button>
-                        <div className="mt-4 text-[10px] text-slate-500 text-center leading-tight">By registering, you agree to our Terms & Privacy Policy.</div>
+                        <div className="mt-4 text-[10px] text-slate-500 text-center leading-tight">
+                            By registering, you agree to our{' '}
+                            <a
+                                href="https://img1.wsimg.com/blobby/go/e7a89444-89f8-4812-8ce7-eba19bcc7358/downloads/84df3fa2-49e5-498f-b5fd-e3c9c1acdbc9/terms_of_service.pdf?ver=1766692591294"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-400 hover:underline"
+                            >
+                                Terms of Service
+                            </a>{' '}
+                            &{' '}
+                            <a
+                                href="https://img1.wsimg.com/blobby/go/e7a89444-89f8-4812-8ce7-eba19bcc7358/downloads/4788a78c-fe6e-407d-8b11-ea83c986826a/privacy_policy.pdf?ver=1766692594896"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-400 hover:underline"
+                            >
+                                Privacy Policy
+                            </a>.
+                        </div>
                     </form>
                 </div>
                 <div className="p-6 bg-slate-700/50 rounded-xl border border-green-500/50 shadow-inner flex flex-col justify-center">
